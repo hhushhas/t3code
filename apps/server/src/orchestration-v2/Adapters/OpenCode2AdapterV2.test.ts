@@ -2572,6 +2572,99 @@ describe("OpenCode2 adapter", () => {
     );
   }
 
+  it.effect("refuses to fork a session while OpenCode runs a follow-up on it", () =>
+    Effect.gen(function* () {
+      // OpenCode starts the thread's session on its own (a background
+      // subagent's report). The replay fails on a fork request.
+      const offered = yield* Deferred.make<void>();
+      const { runtime, thread } = yield* resumed([
+        event("session.execution.started", { sessionID: SESSION }),
+      ]).pipe(
+        Effect.provideService(ProviderContinuationRequests.ProviderContinuationRequests, {
+          offer: () => Deferred.succeed(offered, undefined).pipe(Effect.asVoid),
+          take: Effect.never,
+        }),
+      );
+      yield* Deferred.await(offered);
+      const refused = yield* runtime
+        .forkThread({
+          sourceProviderThread: thread,
+          targetThreadId: ThreadId.make("thread:opencode2-adapter:fork"),
+        })
+        .pipe(Effect.flip);
+      assert.equal(refused._tag, "ProviderAdapterProtocolError");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("asks the server before forking a session this runtime has not loaded", () =>
+    Effect.gen(function* () {
+      const runtime = yield* openCode2ReplayRuntime([
+        ...opening,
+        out("session.active"),
+        reply("session.active", { data: { [SESSION]: { type: "running" } } }),
+      ]);
+      const refused = yield* runtime
+        .forkThread({
+          sourceProviderThread: providerThread(yield* DateTime.now),
+          targetThreadId: ThreadId.make("thread:opencode2-adapter:fork"),
+        })
+        .pipe(Effect.flip);
+      assert.equal(refused._tag, "ProviderAdapterProtocolError");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("lets the next turn start when a rollback's stage never answers", () =>
+    Effect.gen(function* () {
+      const prompted = `msg_t3_turn_${SESSION}:attempt:earlier`;
+      const { runtime, thread } = yield* resumed([
+        out("message.list", "<any>"),
+        reply("message.list", {
+          data: [{ id: prompted, time: { created: 1 }, text: "earlier", type: "user" }],
+          cursor: {},
+        }),
+        out("session.revert.stage", { sessionID: SESSION, messageID: prompted, files: false }),
+        reply("session.revert.stage", "<hang>"),
+        // The stalled stage is cleared, which runs its empty execution.
+        out("session.revert.clear", { sessionID: SESSION }),
+        reply("session.revert.clear", null),
+        event("session.execution.started", { sessionID: SESSION }),
+        event("session.execution.succeeded", { sessionID: SESSION }),
+        out("session.prompt", { sessionID: SESSION, text: "<any>" }),
+        promptAccepted,
+        event("session.execution.started", { sessionID: SESSION }),
+        event("session.execution.succeeded", { sessionID: SESSION }),
+      ]);
+      const now = yield* DateTime.now;
+      const earlier = {
+        id: ProviderTurnId.make("provider-turn:earlier"),
+        providerThreadId: thread.id,
+        nodeId: NodeId.make("node:earlier"),
+        runAttemptId: RunAttemptId.make("attempt:earlier"),
+        nativeTurnRef: { driver: OPENCODE_PROVIDER, nativeId: prompted, strength: "weak" as const },
+        ordinal: 1,
+        status: "completed" as const,
+        startedAt: now,
+        completedAt: now,
+      };
+      const rollback = yield* runtime
+        .rollbackThread({
+          providerThread: thread,
+          target: {
+            type: "thread_start",
+            checkpointId: CheckpointId.make("checkpoint:start"),
+            appRunOrdinal: 0,
+          },
+          providerThreadTurns: [earlier],
+        })
+        .pipe(Effect.exit, Effect.forkScoped);
+      yield* TestClock.adjust("11 seconds");
+      assert.isTrue(Exit.isFailure(yield* Fiber.join(rollback)));
+      const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
+      yield* runtime.startTurn(turnInput(thread));
+      assert.equal((yield* Fiber.join(terminal))?.status, "completed");
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
   it.effect("refuses to fork a session while its turn runs", () =>
     Effect.gen(function* () {
       // The replay fails on a fork request: only the running turn's prompt is expected.
