@@ -984,6 +984,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
               />
             }
             selected={selected}
+            // The create in flight keeps the machine it started on.
+            disabled={isSubmitting}
             isFirst={index === 0}
             right={
               selected ? (
