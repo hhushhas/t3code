@@ -2050,8 +2050,9 @@ const makeWsRpcLayer = (
             });
             yield* dispatchNormalizedCommand(command);
           }).pipe(
-            // The folder is brand new and holds only the starter files.
-            Effect.onError(() =>
+            // Only a rejected command means no project uses the folder. An
+            // interrupt can land after the command is queued, so keep it then.
+            Effect.tapError(() =>
               fileSystem.remove(folder.workspaceRoot, { recursive: true }).pipe(Effect.ignore),
             ),
           );

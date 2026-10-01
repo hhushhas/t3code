@@ -152,10 +152,11 @@ export const createNewProjectFolder = Effect.fn("NewProject.createNewProjectFold
         path.join(cwd, "assets", "icon.svg"),
         newProjectIconSvg(input.name),
       );
+      // Named and forced so a global ignore rule (say `*.svg`) cannot drop one.
       yield* git.execute({
         operation: "NewProject.add",
         cwd,
-        args: ["add", "--all"],
+        args: ["add", "--force", "--", "README.md", "assets/icon.svg"],
         timeoutMs: 10_000,
       });
       const commitError = yield* git

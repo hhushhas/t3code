@@ -864,6 +864,8 @@ function OpenCommandPaletteDialog(props: {
   // The name step of New project: while set, the palette input is the name.
   const [newProjectFlow, setNewProjectFlow] = useState<{
     readonly environmentId: EnvironmentId;
+    /** Machine of the Add project sources view under this step; null from the palette root. */
+    readonly sourcesEnvironmentId: EnvironmentId | null;
   } | null>(null);
   const [newProjectPublishesToGitHub, setNewProjectPublishesToGitHub] = useState(false);
   const [isCreatingNewProject, setIsCreatingNewProject] = useState(false);
@@ -1486,6 +1488,9 @@ function OpenCommandPaletteDialog(props: {
     setNewProjectFlow(null);
     if (viewStack.length <= 1) {
       setAddProjectEnvironmentId(null);
+    } else if (newProjectFlow?.sourcesEnvironmentId) {
+      // The machine switcher may have moved off the sources view's machine.
+      setAddProjectEnvironmentId(newProjectFlow.sourcesEnvironmentId);
     }
     setViewStack((previousViews) => previousViews.slice(0, -1));
     setHighlightedItemValue(null);
@@ -1555,10 +1560,10 @@ function OpenCommandPaletteDialog(props: {
   );
 
   const startNewProject = useCallback(
-    (environmentId: EnvironmentId): void => {
+    (environmentId: EnvironmentId, sourcesEnvironmentId: EnvironmentId | null): void => {
       setAddProjectEnvironmentId(environmentId);
       setAddProjectCloneFlow(null);
-      setNewProjectFlow({ environmentId });
+      setNewProjectFlow({ environmentId, sourcesEnvironmentId });
       setNewProjectPublishesToGitHub(false);
       pushPaletteView({
         addonIcon: <FolderGit2Icon className={ADDON_ICON_CLASS} />,
@@ -1603,7 +1608,7 @@ function OpenCommandPaletteDialog(props: {
           icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
           keepOpen: true,
           run: async () => {
-            startNewProject(environmentId);
+            startNewProject(environmentId, environmentId);
           },
         });
       }
@@ -1798,7 +1803,7 @@ function OpenCommandPaletteDialog(props: {
   // lists the other machines when there is a choice.
   const openNewProjectFlow = () => {
     const firstOption = newProjectEnvironmentOptions[0];
-    if (firstOption) startNewProject(firstOption.environmentId);
+    if (firstOption) startNewProject(firstOption.environmentId, null);
   };
 
   useLayoutEffect(() => {
@@ -2764,28 +2769,46 @@ function OpenCommandPaletteDialog(props: {
   const newProjectPathPreview =
     newProjectsRoot === null ? null : getNewProjectPathPreview(newProjectsRoot, newProjectName);
   const newProjectGitHubToggleValue = "new-project:github";
-  // The name step's way out to folders and clones. Back from the sources list
-  // returns to wherever New project was opened from, so this replaces the
-  // name step instead of stacking another sources list on top of it.
+  // The name step's way out to folders and clones, for the selected machine.
+  // It replaces the name step (and a sources view for another machine under
+  // it), so Back returns to wherever New project was opened from.
   const showExistingProjectSources = (environmentId: EnvironmentId) => {
-    const openedFromSources = viewStack.at(-2)?.groups[0]?.value === `sources:${environmentId}`;
+    const sourcesEnvironmentId = newProjectFlow?.sourcesEnvironmentId ?? null;
+    if (sourcesEnvironmentId === environmentId) {
+      popView();
+      return;
+    }
+    if (sourcesEnvironmentId !== null) {
+      setViewStack((previousViews) => previousViews.slice(0, -1));
+    }
     popView();
-    if (!openedFromSources) startAddProjectSourceSelection(environmentId);
+    startAddProjectSourceSelection(environmentId);
   };
   // Switching machines keeps the typed name; the GitHub option follows the
   // machine because source control discovery reads addProjectEnvironmentId.
   const switchNewProjectEnvironment = (environmentId: EnvironmentId) => {
-    setNewProjectFlow({ environmentId });
+    setNewProjectFlow((flow) => (flow === null ? flow : { ...flow, environmentId }));
     setAddProjectEnvironmentId(environmentId);
   };
-  const newProjectEnvironmentLabel =
-    newProjectFlow !== null && newProjectEnvironmentOptions.length > 1
-      ? (newProjectEnvironmentOptions.find(
+  const selectedNewProjectEnvironment =
+    newProjectFlow === null
+      ? undefined
+      : newProjectEnvironmentOptions.find(
           (option) => option.environmentId === newProjectFlow.environmentId,
-        )?.label ?? null)
-      : null;
+        );
+  // Shown when there is a choice, or when the selected machine went away and
+  // another one can take over.
+  const showNewProjectMachines =
+    newProjectFlow !== null &&
+    (newProjectEnvironmentOptions.length > 1 ||
+      (selectedNewProjectEnvironment === undefined && newProjectEnvironmentOptions.length > 0));
+  const newProjectEnvironmentLabel = showNewProjectMachines
+    ? (selectedNewProjectEnvironment?.label ??
+      environmentLabelById.get(newProjectFlow.environmentId) ??
+      null)
+    : null;
   const newProjectMachineGroup: CommandPaletteView["groups"][number] | null =
-    newProjectEnvironmentLabel === null || newProjectFlow === null
+    !showNewProjectMachines || newProjectFlow === null
       ? null
       : {
           value: "new-project-machines",
@@ -2989,7 +3012,14 @@ function OpenCommandPaletteDialog(props: {
 
     // Enter creates the project unless an item below the name is
     // highlighted, in which case it runs that item.
-    if (newProjectFlow !== null && event.key === "Enter" && highlightedItemValue === null) {
+    if (
+      newProjectFlow !== null &&
+      event.key === "Enter" &&
+      highlightedItemValue === null &&
+      // Enter that confirms an IME composition is part of typing the name.
+      !event.nativeEvent.isComposing &&
+      event.keyCode !== 229
+    ) {
       event.preventDefault();
       void submitNewProject();
       return;

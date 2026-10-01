@@ -5603,7 +5603,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             ]);
             assert.deepEqual(gitCalls, [
               "init --initial-branch=main",
-              "add --all",
+              "add --force -- README.md assets/icon.svg",
               "commit --message Initial commit",
             ]);
             assert.isTrue(

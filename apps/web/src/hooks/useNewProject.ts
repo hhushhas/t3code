@@ -120,7 +120,17 @@ export function useNewProject() {
       const projectRef = scopeProjectRef(input.environmentId, projectId);
       // Drafts key off the project's stored path, so wait for the create event
       // to reach the store before opening one.
-      await waitForProject(projectRef, 3_000).catch(() => null);
+      const project = await waitForProject(projectRef).catch((error: unknown) => {
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to open project",
+            description: `${errorMessage(error)} It will appear in the sidebar once this client catches up.`,
+          }),
+        );
+        return null;
+      });
+      if (project === null) return true;
       await handleNewThread(projectRef).catch((error: unknown) => {
         toastManager.add(
           stackedThreadToast({

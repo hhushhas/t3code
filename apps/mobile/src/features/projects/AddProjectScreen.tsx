@@ -964,6 +964,44 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
       ? getNewProjectPathPreview(environment.newProjectsRoot, trimmedName)
       : null;
 
+  // Shown when there is a choice, or when the selected machine went away and
+  // another one can take over.
+  const showMachines =
+    environmentOptions.length > 1 || (environment === null && environmentOptions.length > 0);
+  const machineRows = showMachines ? (
+    <ListSection>
+      {environmentOptions.map((option, index) => {
+        const selected = option.environmentId === environment?.environmentId;
+        return (
+          <ListRow
+            key={option.environmentId}
+            title={option.label}
+            icon={
+              <EnvironmentMachineSymbol
+                kind={option.machine}
+                size={Platform.OS === "android" ? 24 : 17}
+                tintColorClassName="accent-icon"
+              />
+            }
+            selected={selected}
+            isFirst={index === 0}
+            right={
+              selected ? (
+                <SymbolView
+                  name="checkmark"
+                  size={Platform.OS === "android" ? 20 : 14}
+                  tintColorClassName="accent-icon"
+                  type="monochrome"
+                />
+              ) : null
+            }
+            onPress={() => setSelectedEnvironmentId(option.environmentId)}
+          />
+        );
+      })}
+    </ListSection>
+  ) : null;
+
   // State lags a render behind, so a double tap could start a second create.
   const submittingRef = useRef(false);
   const submit = async () => {
@@ -1047,39 +1085,10 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
               {trimmedName.length > 0
                 ? `Creates ${pathPreview}`
                 : `Goes in ${environment.newProjectsRoot}`}
-              {environmentOptions.length > 1 ? ` on ${environment.label}` : null}
+              {showMachines ? ` on ${environment.label}` : null}
             </Text>
           ) : null}
-          {environmentOptions.length > 1 ? (
-            <ListSection>
-              {environmentOptions.map((option, index) => (
-                <ListRow
-                  key={option.environmentId}
-                  title={option.label}
-                  icon={
-                    <EnvironmentMachineSymbol
-                      kind={option.machine}
-                      size={Platform.OS === "android" ? 24 : 17}
-                      tintColorClassName="accent-icon"
-                    />
-                  }
-                  selected={option.environmentId === environment.environmentId}
-                  isFirst={index === 0}
-                  right={
-                    option.environmentId === environment.environmentId ? (
-                      <SymbolView
-                        name="checkmark"
-                        size={Platform.OS === "android" ? 20 : 14}
-                        tintColorClassName="accent-icon"
-                        type="monochrome"
-                      />
-                    ) : null
-                  }
-                  onPress={() => setSelectedEnvironmentId(option.environmentId)}
-                />
-              ))}
-            </ListSection>
-          ) : null}
+          {machineRows}
           {githubTarget !== null ? (
             <ListSection>
               <ListRow
@@ -1137,6 +1146,8 @@ export function AddProjectNewScreen(props: { readonly environmentId?: string | s
             />
           </ListSection>
         </>
+      ) : environmentOptions.length > 0 ? (
+        machineRows
       ) : (
         <EmptyEnvironmentState />
       )}
